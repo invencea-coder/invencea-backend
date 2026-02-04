@@ -192,25 +192,26 @@ export const login = async (req, res) => {
 /* ---------- Logout endpoint ---------- */
 export const logout = async (req, res) => {
   try {
-    const auth = (req.get("authorization") || req.get("Authorization") || "").trim();
-    let token = null;
-    if (auth.toLowerCase().startsWith("bearer ")) token = auth.slice(7).trim();
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
 
-    if (token) {
-      await supabase.from("active_sessions").delete().eq("token", token);
-      return res.json({ success: true });
-    }
-
-    // fallback: accept user_id in body
     const userId = req.body?.user_id;
-    if (userId) {
-      await supabase.from("active_sessions").delete().eq("user_id", userId);
-      return res.json({ success: true });
+
+    if (!token && !userId) {
+      return res.status(400).json({ message: "Missing token or user_id" });
     }
 
-    return res.status(400).json({ message: "Missing token or user_id" });
+    // Delete the session row(s)
+    const query = supabase.from("active_sessions").delete();
+    if (token) query.eq("token", token);
+    if (userId) query.eq("user_id", userId);
+
+    await query;
+
+    return res.json({ success: true });
   } catch (err) {
-    console.error("authController.logout error:", err);
+    console.error("Logout error:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
