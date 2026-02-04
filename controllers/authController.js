@@ -1,6 +1,9 @@
-// invencea-backend/src/controllers/authController.js
+// invencea-backend/controllers/authController.js
 import { supabase } from "../config/supabaseClient.js";
 import jwt from "jsonwebtoken";
+
+// Default TTL for active session in hours
+const ACTIVE_SESSION_TTL_HOURS = Number(process.env.ACTIVE_SESSION_TTL_HOURS || 8);
 
 export const login = async (req, res) => {
   try {
@@ -40,24 +43,46 @@ export const login = async (req, res) => {
         return res.status(500).json({ message: "Server not configured for scan-login" });
       }
 
+      // Check active session
+      const { data: activeSession } = await supabase
+        .from("active_sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      if (activeSession) {
+        return res.status(409).json({
+          message: "User already logged in elsewhere",
+          active_user_name: user.full_name,
+          active_user_email: user.email,
+        });
+      }
+
+      // Create JWT token
       const payload = { sub: user.id, email: user.email, role };
       const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "8h" });
 
-      return res.json({
-  token,
-  user: {
-    id: user.id,
-    email: user.email,
-    role: (user.role || "").toString().toLowerCase(),
-    branch: user.branch,
-    branch_id: user.branch_id,
-    full_name: user.full_name,
-  },
-});
+      // Insert active session
+      await supabase.from("active_sessions").insert({
+        user_id: user.id,
+        token,
+        expires_at: new Date(Date.now() + ACTIVE_SESSION_TTL_HOURS * 3600 * 1000).toISOString(),
+      });
 
+      return res.json({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: role,
+          branch: user.branch,
+          branch_id: user.branch_id,
+          full_name: user.full_name,
+        },
+      });
     }
 
-    // ===== normal password-based login (unchanged) =====
+    // ===== normal password-based login =====
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -77,6 +102,28 @@ export const login = async (req, res) => {
       console.error(userError);
       return res.status(500).json({ message: "Failed to load user profile" });
     }
+
+    // Check active session
+    const { data: activeSession } = await supabase
+      .from("active_sessions")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    if (activeSession) {
+      return res.status(409).json({
+        message: "User already logged in elsewhere",
+        active_user_name: user.full_name,
+        active_user_email: user.email,
+      });
+    }
+
+    // Insert active session
+    await supabase.from("active_sessions").insert({
+      user_id: user.id,
+      token: data.session.access_token,
+      expires_at: new Date(Date.now() + ACTIVE_SESSION_TTL_HOURS * 3600 * 1000).toISOString(),
+    });
 
     return res.json({
       token: data.session.access_token,
