@@ -21,7 +21,10 @@ const app = express();
 const allowedOrigins = [
   "https://invencea.netlify.app",
   "http://localhost:5173",
+  "https://invencea-frontend-lvkz9ql9s-invencea-coders-projects.vercel.app", // <-- add this
+  "https://invencea-frontend.vercel.app", // <-- also your custom alias
 ];
+
 
 app.use(cors({
   origin: (origin, callback) => {
